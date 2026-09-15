@@ -21,7 +21,7 @@ async function apiFetch(path, options = {}) {
   try {
     data = await response.json();
   } catch (e) {
-    // response had no JSON body
+
   }
 
   if (!response.ok) {
