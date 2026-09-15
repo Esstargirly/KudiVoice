@@ -1,7 +1,7 @@
-const API_BASE_URL = " https://kudivoice.onrender.com";
+const API_BASE_URL = "https://kudivoice.onrender.com";
 
 async function apiFetch(path, options = {}) {
-  const token = localStorage.getItem("gemledger_token");
+  const token = localStorage.getItem("kudivoice_token");
 
   const headers = {
     "Content-Type": "application/json",
@@ -21,7 +21,7 @@ async function apiFetch(path, options = {}) {
   try {
     data = await response.json();
   } catch (e) {
-
+    // response had no JSON body
   }
 
   if (!response.ok) {
@@ -33,31 +33,31 @@ async function apiFetch(path, options = {}) {
 }
 
 function saveToken(token) {
-  localStorage.setItem("gemledger_token", token);
+  localStorage.setItem("kudivoice_token", token);
 }
 
 function getToken() {
-  return localStorage.getItem("gemledger_token");
+  return localStorage.getItem("kudivoice_token");
 }
 
 function clearToken() {
-  localStorage.removeItem("gemledger_token");
+  localStorage.removeItem("kudivoice_token");
 }
 
 function saveBusinessName(name) {
-  localStorage.setItem("gemledger_business_name", name);
+  localStorage.setItem("kudivoice_business_name", name);
 }
 
 function getBusinessName() {
-  return localStorage.getItem("gemledger_business_name") || "there";
+  return localStorage.getItem("kudivoice_business_name") || "there";
 }
 
 function saveEmail(email) {
-  localStorage.setItem("gemledger_email", email);
+  localStorage.setItem("kudivoice_email", email);
 }
 
 function getEmail() {
-  return localStorage.getItem("gemledger_email") || "";
+  return localStorage.getItem("kudivoice_email") || "";
 }
 
 function requireAuth() {
@@ -68,7 +68,7 @@ function requireAuth() {
 
 function logout() {
   clearToken();
-  localStorage.removeItem("gemledger_business_name");
-  localStorage.removeItem("gemledger_email");
+  localStorage.removeItem("kudivoice_business_name");
+  localStorage.removeItem("kudivoice_email");
   window.location.href = "login.html";
 }
