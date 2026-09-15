@@ -1,4 +1,4 @@
-const API_BASE_URL = "https://gem-ledger.onrender.com";
+const API_BASE_URL = " https://kudivoice.onrender.com";
 
 async function apiFetch(path, options = {}) {
   const token = localStorage.getItem("gemledger_token");
