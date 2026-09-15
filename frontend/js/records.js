@@ -154,7 +154,7 @@ if (exportPdfBtn) {
     // Header
     doc.setFontSize(18);
     doc.setTextColor(49, 99, 66); // primary green
-    doc.text("GemLedger", 14, 18);
+    doc.text("KudiVoice", 14, 18);
 
     doc.setFontSize(11);
     doc.setTextColor(80, 80, 80);

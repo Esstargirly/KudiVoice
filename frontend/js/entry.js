@@ -12,7 +12,7 @@ const insightCard = document.getElementById("insight-text");
 const recentList = document.getElementById("recent-records-list");
 const micBtn = document.getElementById("mic-btn");
 
-// ADD ENTRY (calls Gemma via backend) 
+// ADD ENTRY (calls Gemma via backend) — typed entries, unchanged
 async function submitEntry() {
   const text = journalEntry.value.trim();
   if (!text) return;
@@ -26,9 +26,6 @@ async function submitEntry() {
       method: "POST",
       body: JSON.stringify({ text }),
     });
-
-    // Expected response shape:
-    // { summary: "You made ₦30,000 profit today...", transactions: [ { type, category, amount, description, date } ] }
 
     if (data.summary && insightCard) {
       insightCard.innerText = data.summary;
@@ -114,73 +111,132 @@ async function loadRecentRecords() {
       data.transactions.forEach((tx) => prependRecentRecord(tx));
     }
   } catch (err) {
-    // Silently ignore on the home screen — records.html is the source of truth
     console.warn("Could not load recent records:", err.message);
   }
 }
 
 loadRecentRecords();
 
-// Voice input (Web Speech API)
-let isListening = false;
-let recognition = null;
+// ── VOICE INPUT — records real audio and sends it to Sahara via /analyze-voice ──
+//
+// NOTE: this replaces the old Web Speech API approach. Web Speech API sends
+// audio straight to the browser's built-in engine (Google's, in Chrome) and
+// never lets us choose the model — so it can't use Sahara. MediaRecorder
+// captures the raw audio ourselves, so we control exactly which speech
+// model processes it.
 
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
 
-if (SpeechRecognition && micBtn) {
-  console.log("Voice input: SpeechRecognition is supported, mic button wired up.");
-  recognition = new SpeechRecognition();
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.lang = "en-US";
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunks = [];
 
-  recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    journalEntry.value = journalEntry.value
-      ? `${journalEntry.value} ${transcript}`
-      : transcript;
-    journalEntry.dispatchEvent(new Event("input"));
-  };
+    // webm/opus is well supported across Chrome/Firefox/Edge and Sahara accepts it
+    const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+      ? "audio/webm"
+      : "";
 
-  recognition.onend = () => {
-    console.log("Speech recognition ended.");
-    setMicListeningState(false);
-  };
+    mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
 
-  recognition.onerror = (event) => {
-    console.error("Speech recognition error:", event.error);
-    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) audioChunks.push(event.data);
+    };
+
+    mediaRecorder.onstop = () => {
+      // Stop the mic stream so the browser mic indicator turns off
+      stream.getTracks().forEach((track) => track.stop());
+      const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+      submitVoiceEntry(audioBlob);
+    };
+
+    mediaRecorder.start();
+    isRecording = true;
+    setMicListeningState(true);
+  } catch (err) {
+    console.error("Could not access microphone:", err);
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
       alert("Microphone access was denied. Please allow microphone permission in your browser settings and try again.");
-    } else if (event.error === "no-speech") {
-      console.log("No speech detected — try speaking right after clicking the mic.");
+    } else {
+      alert("Couldn't access your microphone. Please try again or type your entry instead.");
     }
     setMicListeningState(false);
-  };
+  }
+}
 
-  micBtn.addEventListener("click", () => {
-    console.log("Mic button clicked. isListening =", isListening);
-    try {
-      if (!isListening) {
-        recognition.start();
-        setMicListeningState(true);
-      } else {
-        recognition.stop();
-        setMicListeningState(false);
-      }
-    } catch (err) {
-      console.error("Error starting/stopping recognition:", err);
-      setMicListeningState(false);
+function stopRecording() {
+  if (mediaRecorder && isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+  }
+}
+
+async function submitVoiceEntry(audioBlob) {
+  setMicProcessingState(true);
+  if (insightCard) {
+    insightCard.innerText = "Listening to your recording...";
+  }
+
+  const formData = new FormData();
+  formData.append("audio", audioBlob, "voice_entry.webm");
+  formData.append("language", "en");
+
+  try {
+    // Raw fetch here (not apiFetch) since we're sending FormData, not JSON —
+    // apiFetch always sets Content-Type: application/json, which breaks file uploads.
+    const token = getToken();
+
+    const response = await fetch(`${API_BASE_URL}/analyze-voice`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Voice entry failed.");
     }
-  });
-} else if (micBtn) {
-  micBtn.title = "Voice input isn't supported in this browser. Try Chrome.";
-  micBtn.addEventListener("click", () => {
-    alert("Voice input works best in Chrome. Please type your entry instead.");
-  });
+
+    if (data.summary && insightCard) {
+      insightCard.innerText = data.summary;
+    }
+
+    if (data.transactions && Array.isArray(data.transactions)) {
+      data.transactions.forEach((tx) => prependRecentRecord(tx, true));
+    }
+  } catch (err) {
+    console.error("Voice entry error:", err);
+    if (insightCard) {
+      insightCard.innerText = `Something went wrong: ${err.message}`;
+    }
+  } finally {
+    setMicProcessingState(false);
+  }
+}
+
+if (micBtn) {
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder) {
+    micBtn.addEventListener("click", () => {
+      if (!isRecording) {
+        startRecording();
+      } else {
+        stopRecording();
+      }
+    });
+  } else {
+    micBtn.title = "Voice input isn't supported in this browser.";
+    micBtn.addEventListener("click", () => {
+      alert("Voice input isn't supported in this browser. Please type your entry instead.");
+    });
+  }
 }
 
 function setMicListeningState(listening) {
-  isListening = listening;
   const ring = micBtn.querySelector(".mic-pulse");
   const icon = micBtn.querySelector(".material-symbols-outlined");
 
@@ -197,7 +253,18 @@ function setMicListeningState(listening) {
   }
 }
 
-//Textarea auto-expand
+function setMicProcessingState(processing) {
+  micBtn.disabled = processing;
+  const icon = micBtn.querySelector(".material-symbols-outlined");
+  if (processing) {
+    setMicListeningState(false);
+    icon.innerText = "hourglass_top";
+  } else {
+    icon.innerText = "mic";
+  }
+}
+
+// Textarea auto-expand
 if (journalEntry) {
   journalEntry.addEventListener("input", function () {
     this.style.height = "auto";

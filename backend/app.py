@@ -25,7 +25,7 @@ def create_app():
 
     @app.route("/")
     def health_check():
-        return jsonify({"status": "GemLedger backend is running"}), 200
+        return jsonify({"status": "KudiVoice backend is running"}), 200
 
     with app.app_context():
         db.create_all() 
